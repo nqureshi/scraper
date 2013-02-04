@@ -1,23 +1,43 @@
 require 'Nokogiri'
 require 'open-uri'
 require 'csv'
+require 'companies_house'
+
+## NOTE - THIS WHOLE SCRIPT ASSUMES A CSV FILE WITH A SINGLE COLUMN OF COMPANY NUMBERS. ANYTHING ELSE WILL FAIL 
+## UNLESS YOU ALTER THE MAIN BIT
 
 @reg = []
 
-# Read company registration data
-CSV.foreach(File.join(File.dirname(__FILE__), 'sample-data.csv')) do |row|
+# Read company reg numbers from a CSV
+CSV.foreach(File.join(File.dirname(__FILE__), 'Jan.csv')) do |row|
   @reg << row
 end
 
-@reg.each do |c|
-  url = "https://www.duedil.com/company/#{c[1]}/"
+data = @reg.map { |r| { reg: r } }
+
+data.each do |company|
   begin
-    # Get cash from Duedil    
+    url = "https://www.duedil.com/company/#{company[:reg][0]}/"
+    c = CompaniesHouse.lookup company[:reg][0]
+    company[:name] = c["CompanyName"]
+    company[:sic_code] = c.sic_code
+    company[:inc_date] = c["IncorporationDate"]
+    company[:last_made_up_date] = c["Returns"]["LastMadeUpDate"]
     page = Nokogiri::HTML(open(url))
     cash = page.css("#widget_headlinefinancialswidget .most-recent").text[/[0-9,]+/]
-    puts c[0] + " - " + cash
-  rescue 
-    puts c[0] + " - " + "Not found" unless c[0].nil?
+    company[:cash] = cash
+  rescue Exception => e
+    puts e
   end
-  sleep 2 # 2 seconds between requests so as not to kill Duedil's servers
+  puts "Done!"
+end
+
+CSV.open("/Users/nabeelqureshi/GoCardless Docs/activation/scraper/companydata.csv", "wb") do |csv|
+  data.each do |a| 
+    begin
+      csv << [a[:reg], a[:name], a[:sic_code], a[:inc_date], a[:last_made_up_date], a[:cash]]
+    rescue Exception => e
+      puts e
+    end
+  end
 end
